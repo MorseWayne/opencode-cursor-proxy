@@ -38,7 +38,7 @@ Add the plugin and provider to your `opencode.json`:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-cursor-proxy"],
+  "plugin": ["opencode-cursor-proxy@latest"],
   "provider": {
     "cursor": { "name": "Cursor" }
   }
