@@ -1,0 +1,78 @@
+{
+  "name": "opencode-cursor-proxy",
+  "version": "0.2.0",
+  "description": "OpenCode plugin for Cursor's AI backend",
+  "author": "Morse Wayne",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MorseWayne/opencode-cursor-proxy"
+  },
+  "module": "dist/index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./plugin": {
+      "import": "./dist/plugin/index.js",
+      "types": "./dist/plugin/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun x tsc -p tsconfig.build.json",
+    "start": "bun run src/server.ts",
+    "server": "bun run src/server.ts",
+    "proxy": "bun run src/server.ts",
+    "auth": "bun run scripts/auth.ts",
+    "auth:status": "bun run scripts/auth.ts status",
+    "auth:login": "bun run scripts/auth.ts login",
+    "auth:logout": "bun run scripts/auth.ts logout",
+    "models": "bun run scripts/fetch-models.ts",
+    "test": "bun test tests/unit",
+    "test:integration": "bun test tests/integration",
+    "test:all": "bun test tests"
+  },
+  "keywords": [
+    "cursor",
+    "opencode",
+    "openai",
+    "api",
+    "proxy",
+    "llm",
+    "ai",
+    "tool-calling",
+    "streaming",
+    "claude",
+    "gpt"
+  ],
+  "devDependencies": {
+    "@opencode-ai/plugin": "^0.13.7",
+    "@opencode-ai/sdk": "^0.13.9",
+    "@types/babel__generator": "^7.27.0",
+    "@types/bun": "latest",
+    "typescript": "^5"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "^0.13.7",
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@anthropic-ai/tokenizer": "^0.0.4",
+    "@babel/generator": "^7.28.5",
+    "@babel/parser": "^7.28.5",
+    "@babel/types": "^7.28.5",
+    "@bufbuild/protobuf": "1.10.0",
+    "gpt-tokenizer": "^3.4.0",
+    "llm-info": "^1.0.69"
+  }
+}

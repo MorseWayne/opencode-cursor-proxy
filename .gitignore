@@ -1,0 +1,59 @@
+# dependencies (bun install)
+node_modules
+
+# output
+out
+*.tgz
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# IntelliJ based IDEs
+.idea
+
+# Finder (MacOS) folder config
+.DS_Store
+
+# Cursor CLI source code (restored from bundles - keep local only)
+cursor-agent-source
+cursor-agent-restored-source-code
+
+# Reverse-engineering notes (keep local only for now)
+docs/SOURCE_RESTORE_GUIDE.md
+
+# High-detail protocol notes (keep local only for now)
+docs/OPENCURSOR.md
+docs/CURSOR_OPENAI_COMPAT.md
+docs/TOOL_CALLING_INVESTIGATION.md
+docs/SESSION_REUSE_IMPLEMENTATION.md
+
+# Source restoration tooling (keep local only for now)
+scripts/restore.ts
+
+# Debug/probe scripts (keep local only for now)
+scripts/debug-*.ts
+scripts/probe-*.ts
+scripts/test-*.ts
+
+/dist
+!.opencode
+
+dist/
