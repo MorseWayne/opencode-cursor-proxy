@@ -87,12 +87,49 @@ Default listen address: `http://localhost:18741`
 
 ### Environment variables
 
-|Variable|Description|Default|
-|---|---|---|
-|`PORT`|Server port|`18741`|
-|`CURSOR_ACCESS_TOKEN`|Provide an access token directly|-|
-|`CURSOR_DEBUG`|Enable debug logging|`0`|
-|`CURSOR_SESSION_REUSE`|Session reuse for tool-calling|`1`|
+#### Basic
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Server port | `18741` |
+| `HOST` | Server host | `localhost` |
+| `CURSOR_ACCESS_TOKEN` | Provide an access token directly | - |
+
+#### Debug & Logging
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CURSOR_DEBUG` | Enable debug logging | `0` |
+| `CURSOR_TIMING` | Enable performance timing logs | `0` |
+| `CURSOR_LOG_LEVEL` | Log level: `error`, `warn`, `info`, `debug` | `info` |
+| `CURSOR_LOG_JSON` | Output logs in JSON format | `0` |
+
+#### Session & Cache
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CURSOR_SESSION_REUSE` | Enable session reuse for tool-calling | `1` |
+| `CURSOR_SESSION_TIMEOUT_MS` | Session timeout (ms) | `900000` (15min) |
+| `CURSOR_MAX_SESSIONS` | Maximum cached sessions | `100` |
+| `CURSOR_MODEL_CACHE_TTL_MS` | Model cache TTL (ms) | `300000` (5min) |
+
+#### Network
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CURSOR_REQUEST_TIMEOUT_MS` | Request timeout (ms) | `120000` (2min) |
+| `CURSOR_MAX_RETRIES` | Max retry attempts | `3` |
+| `CURSOR_RETRY_ENABLED` | Enable automatic retry | `1` |
+| `CURSOR_RETRY_BASE_DELAY_MS` | Base delay for exponential backoff (ms) | `1000` |
+| `CURSOR_RETRY_MAX_DELAY_MS` | Max delay between retries (ms) | `30000` |
+
+#### API
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CURSOR_API_URL` | Cursor API base URL | `https://api2.cursor.sh` |
+| `CURSOR_PRIVACY_MODE` | Enable privacy mode | `1` |
+| `CURSOR_CLIENT_VERSION` | Override client version header | - |
 
 ## License
 

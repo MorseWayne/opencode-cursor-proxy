@@ -45,35 +45,41 @@ import {
   selectCallBase,
   type SessionLike,
 } from "../session-reuse";
+import { config, isSessionReuseEnabled } from "../config";
+import { openaiLogger as logger, LRUCache } from "../utils";
 
 // --- Model Cache ---
-interface ModelCache {
-  models: CursorModelInfo[] | null;
-  time: number;
-}
-const modelCache: ModelCache = { models: null, time: 0 };
-const MODEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const modelCache = new LRUCache<CursorModelInfo[]>({
+  max: 1,
+  ttl: config.cache.modelTtlMs,
+});
+const MODEL_CACHE_KEY = "cursor-models";
 
-const SESSION_REUSE_TIMEOUT_MS = 15 * 60 * 1000;
-const sessionMap = new Map<string, SessionLike>();
-
-function sessionReuseEnabled(): boolean {
-  return process.env.CURSOR_SESSION_REUSE !== "0";
-}
+// --- Session Cache ---
+const sessionMap = new LRUCache<SessionLike>({
+  max: config.session.maxSessions,
+  ttl: config.session.timeoutMs,
+  onEvict: async (_key, session) => {
+    try {
+      await session.iterator.return?.();
+    } catch {
+      // Ignore cleanup errors
+    }
+  },
+});
 
 /**
  * Get cached models or fetch fresh ones
  */
 async function getCachedModels(accessToken: string): Promise<CursorModelInfo[]> {
-  const now = Date.now();
-  if (modelCache.models && now - modelCache.time < MODEL_CACHE_TTL) {
-    return modelCache.models;
+  const cached = modelCache.get(MODEL_CACHE_KEY);
+  if (cached) {
+    return cached;
   }
 
   const cursorClient = new CursorClient(accessToken);
   const models = await listCursorModels(cursorClient);
-  modelCache.models = models;
-  modelCache.time = now;
+  modelCache.set(MODEL_CACHE_KEY, models);
   return models;
 }
 
@@ -282,7 +288,7 @@ async function streamChatCompletion(params: StreamParams): Promise<Response> {
   // 1. Tools are provided (new request that may result in tool calls), OR
   // 2. Messages contain tool results (continuation with tool results)
   const hasToolMessages = messages.some(m => m.role === "tool" && m.tool_call_id);
-  const shouldUseSessionReuse = sessionReuseEnabled() && (toolsProvided || hasToolMessages);
+  const shouldUseSessionReuse = isSessionReuseEnabled() && (toolsProvided || hasToolMessages);
   
   if (shouldUseSessionReuse) {
     return streamChatCompletionWithSessionReuse({
@@ -482,10 +488,8 @@ async function streamChatCompletion(params: StreamParams): Promise<Response> {
 async function streamChatCompletionWithSessionReuse(params: StreamParams): Promise<Response> {
   const { client, prompt, model, tools, messages, completionId, created, log } = params;
 
-  await cleanupExpiredSessions(
-    sessionMap as unknown as Map<string, { iterator?: AsyncIterator<unknown>; lastActivity: number }>,
-    SESSION_REUSE_TIMEOUT_MS
-  );
+  // LRUCache automatically handles expiration, just prune occasionally
+  sessionMap.prune();
 
   const encoder = new TextEncoder();
   let isClosed = false;

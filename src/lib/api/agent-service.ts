@@ -86,13 +86,12 @@ export { AgentMode };
 export type AgentStreamChunk = AgentStreamChunkType;
 export type { ExecRequest, McpExecRequest, ToolCallInfo, OpenAIToolDefinition };
 
-// Debug logging - set to true to enable verbose logging
-const DEBUG = process.env.CURSOR_DEBUG === "1";
-const debugLog = DEBUG ? console.log.bind(console) : () => {};
+import { config, isDebugEnabled, isTimingEnabled } from "../config";
+import { apiLogger, createTimer } from "../utils/logger";
 
-// Performance timing - set CURSOR_TIMING=1 to enable timing logs (or CURSOR_DEBUG=1)
-const TIMING_ENABLED = process.env.CURSOR_TIMING === "1" || DEBUG;
-const timingLog = TIMING_ENABLED ? console.log.bind(console) : () => {};
+// Create specialized loggers
+const debugLog = isDebugEnabled() ? apiLogger.debug.bind(apiLogger) : () => {};
+const timingLog = isTimingEnabled() ? apiLogger.timing.bind(apiLogger) : () => {};
 
 
 function createTimingMetrics(): ChatTimingMetrics {
@@ -129,12 +128,10 @@ function logTimingMetrics(metrics: ChatTimingMetrics): void {
   timingLog("[TIMING] ═══════════════════════════════════════════════════════");
 }
 
-// Cursor API URL (main API)
-export const CURSOR_API_URL = "https://api2.cursor.sh";
-
-// Agent backends
-export const AGENT_PRIVACY_URL = "https://agent.api5.cursor.sh";
-export const AGENT_NON_PRIVACY_URL = "https://agentn.api5.cursor.sh";
+// Cursor API URLs from config
+export const CURSOR_API_URL = config.api.baseUrl;
+export const AGENT_PRIVACY_URL = config.api.agentPrivacyUrl;
+export const AGENT_NON_PRIVACY_URL = config.api.agentNonPrivacyUrl;
 
 function detectLatestInstalledAgentVersion(): string | undefined {
   try {
@@ -152,7 +149,7 @@ function detectLatestInstalledAgentVersion(): string | undefined {
 }
 
 function resolveClientVersionHeader(): string {
-  return process.env.CURSOR_CLIENT_VERSION ?? detectLatestInstalledAgentVersion() ?? "cli-unknown";
+  return config.api.clientVersion || detectLatestInstalledAgentVersion() || "cli-unknown";
 }
 
 function parseTrailerMetadata(trailer: string): Record<string, string> {
@@ -260,7 +257,7 @@ export class AgentServiceClient {
 
   constructor(accessToken: string, options: AgentServiceOptions = {}) {
     this.accessToken = accessToken;
-    this.privacyMode = options.privacyMode ?? true;
+    this.privacyMode = options.privacyMode ?? config.api.privacyMode;
     this.clientVersionHeader = resolveClientVersionHeader();
 
     // Default to api2, but allow fallback to agent backends if needed
@@ -305,7 +302,7 @@ export class AgentServiceClient {
     // Cursor can route AgentService/BidiService to agent.api5.cursor.sh, but those
     // backends often require HTTP/2. Bun's fetch currently struggles with that,
     // so only attempt api5 fallbacks when explicitly enabled.
-    const allowApi5Fallback = process.env.CURSOR_AGENT_TRY_API5 === "1";
+    const allowApi5Fallback = config.api.tryApi5Fallback;
     const isBunRuntime =
       typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 
@@ -771,10 +768,10 @@ export class AgentServiceClient {
 
     let appendSeqno = 0n;
     // Heartbeats are frequent; be generous to avoid premature turn cuts
-    const HEARTBEAT_IDLE_MS_PROGRESS = 120000; // 2 minutes idle after progress
-    const HEARTBEAT_MAX_PROGRESS = 1000; // generous beat budget once progress observed
-    const HEARTBEAT_IDLE_MS_NOPROGRESS = 180000; // 3 minutes before first progress
-    const HEARTBEAT_MAX_NOPROGRESS = 1000;
+    const HEARTBEAT_IDLE_MS_PROGRESS = config.heartbeat.idleAfterProgressMs;
+    const HEARTBEAT_MAX_PROGRESS = config.heartbeat.maxAfterProgress;
+    const HEARTBEAT_IDLE_MS_NOPROGRESS = config.heartbeat.idleBeforeProgressMs;
+    const HEARTBEAT_MAX_NOPROGRESS = config.heartbeat.maxBeforeProgress;
     let lastProgressAt = Date.now();
     let heartbeatSinceProgress = 0;
     let hasProgress = false;
@@ -796,7 +793,7 @@ export class AgentServiceClient {
     const sseUrl = `${this.baseUrl}/agent.v1.AgentService/RunSSE`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000);
+    const timeout = setTimeout(() => controller.abort(), config.network.requestTimeoutMs);
 
     try {
       const ssePromise = fetch(sseUrl, {

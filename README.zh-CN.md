@@ -85,6 +85,52 @@ bun run server
 
 默认监听：`http://localhost:18741`
 
+### 环境变量
+
+#### 基础配置
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `PORT` | 服务器端口 | `18741` |
+| `HOST` | 服务器主机 | `localhost` |
+| `CURSOR_ACCESS_TOKEN` | 直接提供访问令牌 | - |
+
+#### 调试与日志
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `CURSOR_DEBUG` | 启用调试日志 | `0` |
+| `CURSOR_TIMING` | 启用性能计时日志 | `0` |
+| `CURSOR_LOG_LEVEL` | 日志级别：`error`, `warn`, `info`, `debug` | `info` |
+| `CURSOR_LOG_JSON` | 以 JSON 格式输出日志 | `0` |
+
+#### 会话与缓存
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `CURSOR_SESSION_REUSE` | 启用工具调用的会话复用 | `1` |
+| `CURSOR_SESSION_TIMEOUT_MS` | 会话超时时间 (毫秒) | `900000` (15分钟) |
+| `CURSOR_MAX_SESSIONS` | 最大缓存会话数 | `100` |
+| `CURSOR_MODEL_CACHE_TTL_MS` | 模型缓存 TTL (毫秒) | `300000` (5分钟) |
+
+#### 网络
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `CURSOR_REQUEST_TIMEOUT_MS` | 请求超时时间 (毫秒) | `120000` (2分钟) |
+| `CURSOR_MAX_RETRIES` | 最大重试次数 | `3` |
+| `CURSOR_RETRY_ENABLED` | 启用自动重试 | `1` |
+| `CURSOR_RETRY_BASE_DELAY_MS` | 指数退避基础延迟 (毫秒) | `1000` |
+| `CURSOR_RETRY_MAX_DELAY_MS` | 重试最大延迟 (毫秒) | `30000` |
+
+#### API
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `CURSOR_API_URL` | Cursor API 基础 URL | `https://api2.cursor.sh` |
+| `CURSOR_PRIVACY_MODE` | 启用隐私模式 | `1` |
+| `CURSOR_CLIENT_VERSION` | 覆盖客户端版本头 | - |
+
 ## 许可证
 
 MIT
