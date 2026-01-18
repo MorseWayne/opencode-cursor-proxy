@@ -90,8 +90,8 @@ import { config, isDebugEnabled, isTimingEnabled } from "../config";
 import { apiLogger, createTimer } from "../utils/logger";
 
 // Create specialized loggers
-const debugLog = isDebugEnabled() ? apiLogger.debug.bind(apiLogger) : () => {};
-const timingLog = isTimingEnabled() ? apiLogger.timing.bind(apiLogger) : () => {};
+const debugLog = isDebugEnabled() ? (msg: string) => apiLogger.debug(msg) : () => {};
+const timingLog = isTimingEnabled() ? (msg: string) => apiLogger.info(msg) : () => {};
 
 
 function createTimingMetrics(): ChatTimingMetrics {
@@ -462,7 +462,7 @@ export class AgentServiceClient {
       throw new Error("No active chat stream - cannot send tool result");
     }
 
-    debugLog("[DEBUG] Sending tool result for exec id:", execRequest.id, "result:", result.success ? "success" : "error");
+    debugLog(`[DEBUG] Sending tool result for exec id: ${execRequest.id}, result: ${result.success ? "success" : "error"}`);
 
     // Build ExecClientMessage with mcp_result
     const execClientMsg = buildExecClientMessage(
@@ -476,7 +476,7 @@ export class AgentServiceClient {
     await this.bidiAppend(this.currentRequestId, this.currentAppendSeqno, responseMsg);
     this.currentAppendSeqno++;
 
-    debugLog("[DEBUG] Tool result sent, new seqno:", this.currentAppendSeqno);
+    debugLog(`[DEBUG] Tool result sent, new seqno: ${this.currentAppendSeqno}`);
 
     // Send stream close control message
     const controlMsg = buildExecClientControlMessage(execRequest.id);
@@ -485,7 +485,7 @@ export class AgentServiceClient {
     await this.bidiAppend(this.currentRequestId, this.currentAppendSeqno, controlResponseMsg);
     this.currentAppendSeqno++;
 
-    debugLog("[DEBUG] Stream close sent for exec id:", execRequest.id);
+    debugLog(`[DEBUG] Stream close sent for exec id: ${execRequest.id}`);
   }
 
   /**
@@ -505,7 +505,7 @@ export class AgentServiceClient {
       throw new Error("No active chat stream - cannot send shell result");
     }
 
-    debugLog("[DEBUG] Sending shell result for id:", id, "exitCode:", exitCode);
+    debugLog(`[DEBUG] Sending shell result for id: ${id}, exitCode: ${exitCode}`);
 
     const execClientMsg = buildExecClientMessageWithShellResult(id, execId, command, cwd, stdout, stderr, exitCode, executionTimeMs);
     const responseMsg = buildAgentClientMessageWithExec(execClientMsg);
@@ -520,7 +520,7 @@ export class AgentServiceClient {
     await this.bidiAppend(this.currentRequestId, this.currentAppendSeqno, controlResponseMsg);
     this.currentAppendSeqno++;
 
-    debugLog("[DEBUG] Stream close sent for exec id:", id);
+    debugLog(`[DEBUG] Stream close sent for exec id: ${id}`);
   }
 
   /**
@@ -531,7 +531,7 @@ export class AgentServiceClient {
       throw new Error("No active chat stream - cannot send ls result");
     }
 
-    debugLog("[DEBUG] Sending ls result for id:", id);
+    debugLog(`[DEBUG] Sending ls result for id: ${id}`);
 
     const execClientMsg = buildExecClientMessageWithLsResult(id, execId, filesString);
     const responseMsg = buildAgentClientMessageWithExec(execClientMsg);
@@ -546,7 +546,7 @@ export class AgentServiceClient {
     await this.bidiAppend(this.currentRequestId, this.currentAppendSeqno, controlResponseMsg);
     this.currentAppendSeqno++;
 
-    debugLog("[DEBUG] Stream close sent for exec id:", id);
+    debugLog(`[DEBUG] Stream close sent for exec id: ${id}`);
   }
 
   /**
@@ -557,7 +557,7 @@ export class AgentServiceClient {
       throw new Error("No active chat stream - cannot send request context result");
     }
 
-    debugLog("[DEBUG] Sending request context result for id:", id);
+    debugLog(`[DEBUG] Sending request context result for id: ${id}`);
 
     const execClientMsg = buildExecClientMessageWithRequestContextResult(id, execId);
     const responseMsg = buildAgentClientMessageWithExec(execClientMsg);
@@ -572,7 +572,7 @@ export class AgentServiceClient {
     await this.bidiAppend(this.currentRequestId, this.currentAppendSeqno, controlResponseMsg);
     this.currentAppendSeqno++;
 
-    debugLog("[DEBUG] Stream close sent for exec id:", id);
+    debugLog(`[DEBUG] Stream close sent for exec id: ${id}`);
   }
 
   /**
@@ -591,7 +591,7 @@ export class AgentServiceClient {
       throw new Error("No active chat stream - cannot send read result");
     }
 
-    debugLog("[DEBUG] Sending read result for id:", id, "path:", path, "contentLength:", content.length);
+    debugLog(`[DEBUG] Sending read result for id: ${id}, path: ${path}, contentLength: ${content.length}`);
 
     const execClientMsg = buildExecClientMessageWithReadResult(id, execId, content, path, totalLines, fileSize, truncated);
     const responseMsg = buildAgentClientMessageWithExec(execClientMsg);
@@ -606,7 +606,7 @@ export class AgentServiceClient {
     await this.bidiAppend(this.currentRequestId, this.currentAppendSeqno, controlResponseMsg);
     this.currentAppendSeqno++;
 
-    debugLog("[DEBUG] Stream close sent for exec id:", id);
+    debugLog(`[DEBUG] Stream close sent for exec id: ${id}`);
   }
 
   /**
@@ -623,7 +623,7 @@ export class AgentServiceClient {
       throw new Error("No active chat stream - cannot send grep result");
     }
 
-    debugLog("[DEBUG] Sending grep result for id:", id, "pattern:", pattern, "files:", files.length);
+    debugLog(`[DEBUG] Sending grep result for id: ${id}, pattern: ${pattern}, files: ${files.length}`);
 
     const execClientMsg = buildExecClientMessageWithGrepResult(id, execId, pattern, path, files);
     const responseMsg = buildAgentClientMessageWithExec(execClientMsg);
@@ -638,7 +638,7 @@ export class AgentServiceClient {
     await this.bidiAppend(this.currentRequestId, this.currentAppendSeqno, controlResponseMsg);
     this.currentAppendSeqno++;
 
-    debugLog("[DEBUG] Stream close sent for exec id:", id);
+    debugLog(`[DEBUG] Stream close sent for exec id: ${id}`);
   }
 
   /**
@@ -656,7 +656,7 @@ export class AgentServiceClient {
       throw new Error("No active chat stream - cannot send write result");
     }
 
-    debugLog("[DEBUG] Sending write result for id:", id, "result:", result.success ? "success" : "error");
+    debugLog(`[DEBUG] Sending write result for id: ${id}, result: ${result.success ? "success" : "error"}`);
 
     const execClientMsg = buildExecClientMessageWithWriteResult(id, execId, result);
     const responseMsg = buildAgentClientMessageWithExec(execClientMsg);
@@ -671,7 +671,7 @@ export class AgentServiceClient {
     await this.bidiAppend(this.currentRequestId, this.currentAppendSeqno, controlResponseMsg);
     this.currentAppendSeqno++;
 
-    debugLog("[DEBUG] Stream close sent for exec id:", id);
+    debugLog(`[DEBUG] Stream close sent for exec id: ${id}`);
   }
 
   /**
@@ -684,10 +684,7 @@ export class AgentServiceClient {
       throw new Error("No active chat stream - cannot send resume action");
     }
 
-    debugLog("[DEBUG] sendResumeAction called:", {
-      requestId: this.currentRequestId,
-      currentSeqno: String(this.currentAppendSeqno),
-    });
+    debugLog(`[DEBUG] sendResumeAction called: requestId=${this.currentRequestId}, currentSeqno=${String(this.currentAppendSeqno)}`);
 
     const conversationAction = encodeConversationActionWithResume();
     const agentClientMessage = encodeAgentClientMessageWithConversationAction(conversationAction);
@@ -696,7 +693,7 @@ export class AgentServiceClient {
     await this.bidiAppend(this.currentRequestId, this.currentAppendSeqno, agentClientMessage);
     this.currentAppendSeqno++;
 
-    debugLog("[DEBUG] ResumeAction sent successfully, new seqno:", String(this.currentAppendSeqno));
+    debugLog(`[DEBUG] ResumeAction sent successfully, new seqno: ${String(this.currentAppendSeqno)}`);
   }
 
   /**
@@ -876,7 +873,7 @@ export class AgentServiceClient {
             // Check for trailer frame
             if ((flags ?? 0) & 0x80) {
               const trailer = new TextDecoder().decode(frameData);
-              debugLog("Received trailer frame:", trailer.slice(0, 200));
+              debugLog(`Received trailer frame: ${trailer.slice(0, 200)}`);
               const meta = parseTrailerMetadata(trailer);
               const grpcStatus = Number(meta["grpc-status"] ?? "0");
 
@@ -903,13 +900,13 @@ export class AgentServiceClient {
             // Parse AgentServerMessage
             metrics.chunkCount++;
             const serverMsgFields = parseProtoFields(frameData);
-            debugLog("[DEBUG] Server message fields:", serverMsgFields.map(f => `field${f.fieldNumber}:${f.wireType}`).join(", "));
+            debugLog(`[DEBUG] Server message fields: ${serverMsgFields.map(f => `field${f.fieldNumber}:${f.wireType}`).join(", ")}`);
 
             for (const field of serverMsgFields) {
               try {
                 // field 1 = interaction_update
                 if (field.fieldNumber === 1 && field.wireType === 2 && field.value instanceof Uint8Array) {
-                  debugLog("[DEBUG] Received interaction_update, length:", field.value.length);
+                  debugLog(`[DEBUG] Received interaction_update, length: ${field.value.length}`);
                   const parsed = parseInteractionUpdate(field.value);
 
                   // Yield text content
@@ -1007,10 +1004,10 @@ export class AgentServiceClient {
                 // NOTE: Checkpoint does NOT mean we're done! exec_server_message can come AFTER checkpoint.
                 // Only end on turn_ended (field 14 in interaction_update) or stream close.
                 if (field.fieldNumber === 3 && field.wireType === 2 && field.value instanceof Uint8Array) {
-                  debugLog("[DEBUG] Received checkpoint, data length:", field.value.length);
+                  debugLog(`[DEBUG] Received checkpoint, data length: ${field.value.length}`);
                   // Try to parse checkpoint to see what it contains
                   const checkpointFields = parseProtoFields(field.value);
-                  debugLog("[DEBUG] Checkpoint fields:", checkpointFields.map(f => `field${f.fieldNumber}:${f.wireType}`).join(", "));
+                  debugLog(`[DEBUG] Checkpoint fields: ${checkpointFields.map(f => `field${f.fieldNumber}:${f.wireType}`).join(", ")}`);
                   for (const cf of checkpointFields) {
                     if (cf.wireType === 2 && cf.value instanceof Uint8Array) {
                       try {
@@ -1028,7 +1025,7 @@ export class AgentServiceClient {
 
                 // field 2 = exec_server_message (tool execution request)
                 if (field.fieldNumber === 2 && field.wireType === 2 && field.value instanceof Uint8Array) {
-                  debugLog("[DEBUG] Received exec_server_message (field 2), length:", field.value.length);
+                  debugLog(`[DEBUG] Received exec_server_message (field 2), length: ${field.value.length}`);
 
                   // Parse the ExecServerMessage
                   const execRequest = parseExecServerMessage(field.value);
@@ -1036,16 +1033,9 @@ export class AgentServiceClient {
                   if (execRequest) {
                     // Log based on type
                     if (execRequest.type === 'mcp') {
-                      debugLog("[DEBUG] Parsed MCP exec request:", {
-                        id: execRequest.id,
-                        name: execRequest.name,
-                        toolName: execRequest.toolName,
-                        providerIdentifier: execRequest.providerIdentifier,
-                        toolCallId: execRequest.toolCallId,
-                        args: execRequest.args,
-                      });
+                      debugLog(`[DEBUG] Parsed MCP exec request: id=${execRequest.id}, name=${execRequest.name}, toolName=${execRequest.toolName}, providerIdentifier=${execRequest.providerIdentifier}, toolCallId=${execRequest.toolCallId}`);
                     } else {
-                      debugLog(`[DEBUG] Parsed ${execRequest.type} exec request:`, execRequest);
+                      debugLog(`[DEBUG] Parsed ${execRequest.type} exec request: id=${execRequest.id}`);
                     }
 
                     // Yield exec_request chunk for the server to handle
@@ -1058,7 +1048,7 @@ export class AgentServiceClient {
                   } else {
                     // Log other exec types we don't handle yet
                     const execFields = parseProtoFields(field.value);
-                    debugLog("[DEBUG] exec_server_message fields (unhandled):", execFields.map(f => `field${f.fieldNumber}`).join(", "));
+                    debugLog(`[DEBUG] exec_server_message fields (unhandled): ${execFields.map(f => `field${f.fieldNumber}`).join(", ")}`);
                   }
                 }
 
@@ -1075,7 +1065,7 @@ export class AgentServiceClient {
                 if (field.fieldNumber === 5 && field.wireType === 2 && field.value instanceof Uint8Array) {
                   debugLog("[DEBUG] Received exec_server_control_message (field 5)!");
                   const controlFields = parseProtoFields(field.value);
-                  debugLog("[DEBUG] exec_server_control_message fields:", controlFields.map(f => `field${f.fieldNumber}:${f.wireType}`).join(", "));
+                  debugLog(`[DEBUG] exec_server_control_message fields: ${controlFields.map(f => `field${f.fieldNumber}:${f.wireType}`).join(", ")}`);
                   
                   // ExecServerControlMessage has field 1 = abort (ExecServerAbort)
                   for (const cf of controlFields) {
@@ -1086,7 +1076,7 @@ export class AgentServiceClient {
                       for (const af of abortFields) {
                         if (af.fieldNumber === 1 && af.wireType === 2 && af.value instanceof Uint8Array) {
                           const abortId = new TextDecoder().decode(af.value);
-                          debugLog("[DEBUG] Abort id:", abortId);
+                          debugLog(`[DEBUG] Abort id: ${abortId}`);
                         }
                       }
                       yield { type: "exec_server_abort" };
@@ -1099,7 +1089,7 @@ export class AgentServiceClient {
                 if (field.fieldNumber === 7 && field.wireType === 2 && field.value instanceof Uint8Array) {
                   debugLog("[DEBUG] Received interaction_query (field 7)!");
                   const queryFields = parseProtoFields(field.value);
-                  debugLog("[DEBUG] interaction_query fields:", queryFields.map(f => `field${f.fieldNumber}:${f.wireType}`).join(", "));
+                  debugLog(`[DEBUG] interaction_query fields: ${queryFields.map(f => `field${f.fieldNumber}:${f.wireType}`).join(", ")}`);
                   
                   // InteractionQuery structure:
                   // field 1 = id (uint32)

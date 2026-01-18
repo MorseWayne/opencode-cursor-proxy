@@ -25,7 +25,7 @@ export interface RetryOptions {
   /** Request timeout in ms (default: from config) */
   timeoutMs?: number;
   /** Custom retry condition (default: retry on 5xx and network errors) */
-  shouldRetry?: (error: Error, response?: Response, attempt: number) => boolean;
+  shouldRetry?: (error: Error, attempt: number, response?: Response) => boolean;
   /** Logger instance for this request */
   logger?: Logger;
 }
@@ -145,8 +145,8 @@ export function isRetryableStatus(status: number): boolean {
  */
 export function defaultShouldRetry(
   error: Error,
-  response?: Response,
-  _attempt?: number
+  _attempt: number,
+  response?: Response
 ): boolean {
   // Always retry transient network errors
   if (isTransientError(error)) {
@@ -239,7 +239,7 @@ export async function fetchWithRetry(
       lastResponse = response;
       lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
 
-      if (!shouldRetry(lastError, response, attempt) || attempt === maxRetries) {
+      if (!shouldRetry(lastError, attempt, response) || attempt === maxRetries) {
         // Don't retry - return the response as-is
         requestLogger.debug(`Request returned non-OK status`, {
           method,
@@ -273,7 +273,7 @@ export async function fetchWithRetry(
       }
 
       // Check if should retry
-      if (!shouldRetry(lastError, undefined, attempt) || attempt === maxRetries) {
+      if (!shouldRetry(lastError, attempt, undefined) || attempt === maxRetries) {
         requestLogger.error(`Request failed`, {
           method,
           error: lastError.message,
