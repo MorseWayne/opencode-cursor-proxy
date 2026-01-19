@@ -60,6 +60,7 @@
     "@opencode-ai/sdk": "^0.13.9",
     "@types/babel__generator": "^7.27.0",
     "@types/bun": "latest",
+    "@types/node": "^25.0.9",
     "typescript": "^5"
   },
   "peerDependencies": {
