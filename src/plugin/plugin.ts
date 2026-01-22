@@ -19,6 +19,12 @@ import { listCursorModels } from "../lib/api/cursor-models";
 import { decodeJwtPayload } from "../lib/utils/jwt";
 import { refreshAccessToken } from "../lib/auth/helpers";
 import { createPluginFetch } from "../lib/openai-compat";
+import { config } from "../lib/config";
+import { authLogger } from "../lib/utils/logger";
+
+// Debug logging - only output when CURSOR_DEBUG=1
+const debugLog = config.debug.enabled ? (msg: string) => authLogger.debug(msg) : () => {};
+
 import type {
   PluginContext,
   PluginResult,
@@ -151,12 +157,12 @@ async function refreshCursorAccessToken(
         body: updatedAuth,
       });
     } catch (e) {
-      console.error("Failed to persist refreshed Cursor credentials:", e);
+      debugLog(`Failed to persist refreshed Cursor credentials: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     return updatedAuth;
   } catch (error) {
-    console.error("Failed to refresh Cursor access token:", error);
+    debugLog(`Failed to refresh Cursor access token: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;
   }
 }

@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-01-22
+
+### Added
+
+- **Enhanced Debug Logging**: Comprehensive logging for session and network operations
+  - Debug logging for bidi communication and session management
+  - Network error logging with distinct error categorization
+  - Consistent debug logging across agent service and session reuse modules
+
+- **Retry Logic for Network Operations**: Improved reliability for transient network errors
+  - Automatic retry mechanism in bidiAppend method for failed network requests
+  - Better error handling and recovery for network-related issues
+  - Enhanced error messages for debugging network connectivity problems
+
+### Changed
+
+- Refactor console.log statements to use centralized debugLog function for consistency
+- Update error handling patterns across agent service and plugin components
+
 ## [1.0.1] - 2026-01-18
 
 ### Added
@@ -76,6 +95,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Protobuf-based Agent Service communication
 - Core authentication flow
 
-[Unreleased]: https://github.com/MorseWayne/opencode-cursor-proxy/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/MorseWayne/opencode-cursor-proxy/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/MorseWayne/opencode-cursor-proxy/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/MorseWayne/opencode-cursor-proxy/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/MorseWayne/opencode-cursor-proxy/compare/v0.2.0...v1.0.1
 [0.2.0]: https://github.com/MorseWayne/opencode-cursor-proxy/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MorseWayne/opencode-cursor-proxy/releases/tag/v0.1.0

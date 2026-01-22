@@ -24,6 +24,11 @@
 
 import crypto from "node:crypto";
 import type { ExecRequest, McpExecRequest } from "./api/agent-service";
+import { config } from "./config";
+import { sessionLogger } from "./utils/logger";
+
+// Debug logging - only output when CURSOR_DEBUG=1
+const debugLog = config.debug.enabled ? (msg: string) => sessionLogger.debug(msg) : () => {};
 
 export interface OpenAIToolCallLite {
   id?: string;
@@ -175,13 +180,13 @@ export async function sendToolResultsToCursor(
   for (const message of toolMessages) {
     if (!message.tool_call_id) continue;
 
-    console.log(
+    debugLog(
       `[Session ${session.id}] Looking up tool_call_id=${message.tool_call_id}, available keys=[${Array.from(session.pendingExecs.keys()).join(", ")}]`
     );
 
     const execReq = session.pendingExecs.get(message.tool_call_id);
     if (!execReq) {
-      console.warn(
+      debugLog(
         `[Session ${session.id}] Tool result for unknown tool_call_id ${message.tool_call_id}; ignoring`
       );
       continue;
@@ -259,7 +264,7 @@ export async function sendToolResultsToCursor(
         return false;
       }
     } catch (err) {
-      console.error(`[Session ${session.id}] Failed to send tool result for ${message.tool_call_id}:`, err);
+      debugLog(`[Session ${session.id}] Failed to send tool result for ${message.tool_call_id}: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
 
@@ -270,9 +275,9 @@ export async function sendToolResultsToCursor(
   if (processedAny) {
     session.state = "running";
     session.lastActivity = Date.now();
-    console.log(`[Session ${session.id}] processedAny=true, tool results sent. Waiting for server to continue...`);
+    debugLog(`[Session ${session.id}] processedAny=true, tool results sent. Waiting for server to continue...`);
   } else {
-    console.log(`[Session ${session.id}] processedAny=false, no matching tool results found`);
+    debugLog(`[Session ${session.id}] processedAny=false, no matching tool results found`);
   }
 
   return processedAny;
@@ -288,7 +293,7 @@ export async function cleanupExpiredSessions(
       try {
         await session.iterator?.return?.();
       } catch (err) {
-        console.warn(`[Session ${sessionId}] Failed to close expired iterator:`, err);
+        debugLog(`[Session ${sessionId}] Failed to close expired iterator: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         sessionMap.delete(sessionId);
       }

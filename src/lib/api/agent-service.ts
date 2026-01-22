@@ -357,6 +357,7 @@ export class AgentServiceClient {
 
   /**
    * Call BidiAppend to send a client message
+   * Includes retry logic for transient network errors
    */
   private async bidiAppend(requestId: string, appendSeqno: bigint, data: Uint8Array): Promise<void> {
     const startTime = Date.now();
@@ -367,40 +368,73 @@ export class AgentServiceClient {
     debugLog(`[TIMING] bidiAppend: data=${data.length}bytes, hex=${hexData.length}chars, envelope=${envelope.length}bytes, encode=${Date.now() - startTime}ms`);
 
     const url = `${this.baseUrl}/aiserver.v1.BidiService/BidiAppend`;
+    const maxRetries = config.network.maxRetries;
+    let lastError: Error | null = null;
 
-    const fetchStart = Date.now();
-    const response = await fetch(url, {
-      method: "POST",
-      headers: this.getHeaders(requestId),
-      body: Buffer.from(envelope),
-    });
-    debugLog(`[TIMING] bidiAppend fetch took ${Date.now() - fetchStart}ms, status=${response.status}`);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const fetchStart = Date.now();
+        const response = await fetch(url, {
+          method: "POST",
+          headers: this.getHeaders(requestId),
+          body: Buffer.from(envelope),
+        });
+        debugLog(`[TIMING] bidiAppend fetch took ${Date.now() - fetchStart}ms, status=${response.status}`);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`BidiAppend failed: ${response.status} - ${errorText}`);
-    }
-
-    // Read the response body to see if there's any useful information
-    const responseBody = await response.arrayBuffer();
-    if (responseBody.byteLength > 0) {
-      debugLog(`[DEBUG] BidiAppend response: ${responseBody.byteLength} bytes`);
-      const bytes = new Uint8Array(responseBody);
-      // Parse as gRPC-Web envelope
-      if (bytes.length >= 5) {
-        const flags = bytes[0] ?? 0;
-        const b1 = bytes[1] ?? 0;
-        const b2 = bytes[2] ?? 0;
-        const b3 = bytes[3] ?? 0;
-        const b4 = bytes[4] ?? 0;
-        const length = (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
-        debugLog(`[DEBUG] BidiAppend response: flags=${flags}, length=${length}, totalBytes=${bytes.length}`);
-        if (length > 0 && bytes.length >= 5 + length) {
-          const payload = bytes.slice(5, 5 + length);
-          debugLog(`[DEBUG] BidiAppend payload hex: ${Buffer.from(payload).toString('hex')}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`BidiAppend failed: ${response.status} - ${errorText}`);
         }
+
+        // Read the response body to see if there's any useful information
+        const responseBody = await response.arrayBuffer();
+        if (responseBody.byteLength > 0) {
+          debugLog(`[DEBUG] BidiAppend response: ${responseBody.byteLength} bytes`);
+          const bytes = new Uint8Array(responseBody);
+          // Parse as gRPC-Web envelope
+          if (bytes.length >= 5) {
+            const flags = bytes[0] ?? 0;
+            const b1 = bytes[1] ?? 0;
+            const b2 = bytes[2] ?? 0;
+            const b3 = bytes[3] ?? 0;
+            const b4 = bytes[4] ?? 0;
+            const length = (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
+            debugLog(`[DEBUG] BidiAppend response: flags=${flags}, length=${length}, totalBytes=${bytes.length}`);
+            if (length > 0 && bytes.length >= 5 + length) {
+              const payload = bytes.slice(5, 5 + length);
+              debugLog(`[DEBUG] BidiAppend payload hex: ${Buffer.from(payload).toString('hex')}`);
+            }
+          }
+        }
+        
+        // Success - return
+        return;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        const errorMsg = lastError.message.toLowerCase();
+        
+        // Check if this is a retryable network error
+        const isRetryable = errorMsg.includes('socket') ||
+                           errorMsg.includes('connection') ||
+                           errorMsg.includes('econnreset') ||
+                           errorMsg.includes('etimedout') ||
+                           errorMsg.includes('epipe') ||
+                           errorMsg.includes('network');
+        
+        if (isRetryable && attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt), config.network.retryMaxDelayMs);
+          debugLog(`[RETRY] bidiAppend attempt ${attempt + 1}/${maxRetries + 1} failed: ${lastError.message}, retrying in ${delay}ms`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        // Not retryable or exhausted retries
+        throw lastError;
       }
     }
+    
+    // Should not reach here, but just in case
+    throw lastError ?? new Error("BidiAppend failed with unknown error");
   }
 
   private async handleKvMessage(
@@ -891,7 +925,7 @@ export class AgentServiceClient {
                   ? `${grpcMessage} (grpc-status ${grpcStatus}): ${decodedDetails}`
                   : `${grpcMessage} (grpc-status ${grpcStatus})`;
 
-                console.error("gRPC error:", fullError);
+                debugLog(`[ERROR] gRPC error: ${fullError}`);
                 yield { type: "error", error: fullError };
               }
               continue;
@@ -990,7 +1024,7 @@ export class AgentServiceClient {
                     const idleLimit = hasProgress ? HEARTBEAT_IDLE_MS_PROGRESS : HEARTBEAT_IDLE_MS_NOPROGRESS;
                     const beatLimit = hasProgress ? HEARTBEAT_MAX_PROGRESS : HEARTBEAT_MAX_NOPROGRESS;
                     if (heartbeatSinceProgress >= beatLimit || idleMs >= idleLimit) {
-                      console.warn(
+                      debugLog(
                         `[DEBUG] Heartbeat idle for ${idleMs}ms (${heartbeatSinceProgress} beats) - closing stream`
                       );
                       turnEnded = true;
@@ -1057,8 +1091,25 @@ export class AgentServiceClient {
                   metrics.kvMessages++;
                   const kvMsg = parseKvServerMessage(field.value);
                   debugLog(`[DEBUG] KV message: id=${kvMsg.id}, type=${kvMsg.messageType}, blobId=${kvMsg.blobId ? Buffer.from(kvMsg.blobId).toString('hex').slice(0, 20) : 'none'}...`);
-                  appendSeqno = await this.handleKvMessage(kvMsg, requestId, appendSeqno);
-                  this.currentAppendSeqno = appendSeqno;
+                  try {
+                    appendSeqno = await this.handleKvMessage(kvMsg, requestId, appendSeqno);
+                    this.currentAppendSeqno = appendSeqno;
+                  } catch (kvErr) {
+                    const kvError = kvErr instanceof Error ? kvErr : new Error(String(kvErr));
+                    // Check if this is a network error (socket closed, connection reset, etc.)
+                    const isNetworkError = kvError.message.includes('socket') || 
+                                           kvError.message.includes('connection') ||
+                                           kvError.message.includes('ECONNRESET') ||
+                                           kvError.message.includes('ETIMEDOUT') ||
+                                           kvError.message.includes('fetch');
+                    if (isNetworkError) {
+                      debugLog(`[ERROR] [KV] Network error during KV message handling: ${kvError.message}`);
+                      // Re-throw to be caught by outer error handler for proper stream error handling
+                      throw kvErr;
+                    }
+                    // For non-network errors, log but don't crash the stream
+                    debugLog("[KV] Error handling KV message: " + kvError.message);
+                  }
                 }
 
                 // field 5 = exec_server_control_message (abort signal from server)
@@ -1129,8 +1180,25 @@ export class AgentServiceClient {
                 }
               } catch (parseErr) {
                 const error = parseErr instanceof Error ? parseErr : new Error(String(parseErr));
-                console.error("Error parsing field:", field.fieldNumber, error);
-                yield { type: "error", error: `Parse error in field ${field.fieldNumber}: ${error.message}` };
+                const errorMsg = error.message.toLowerCase();
+                
+                // Check if this is a network/connection error rather than a parse error
+                const isNetworkError = errorMsg.includes('socket') || 
+                                       errorMsg.includes('connection') ||
+                                       errorMsg.includes('econnreset') ||
+                                       errorMsg.includes('etimedout') ||
+                                       errorMsg.includes('fetch') ||
+                                       errorMsg.includes('network');
+                
+                if (isNetworkError) {
+                  debugLog(`[ERROR] Network error during stream processing: ${error.message}`);
+                  yield { type: "error", error: `Network error: ${error.message}` };
+                  // Network errors should terminate the stream
+                  turnEnded = true;
+                } else {
+                  debugLog(`[ERROR] Error parsing field ${field.fieldNumber}: ${error.message}`);
+                  yield { type: "error", error: `Parse error in field ${field.fieldNumber}: ${error.message}` };
+                }
               }
             }
 
@@ -1171,7 +1239,8 @@ export class AgentServiceClient {
         // Normal termination after turn ended
         return;
       }
-      console.error("Agent stream error:", error.name, error.message, (err as Error).stack);
+      debugLog(`[ERROR] Agent stream error: ${error.name} - ${error.message}`);
+      debugLog(`[ERROR] Agent stream error stack: ${(err as Error).stack}`);
       yield { type: "error", error: error.message || String(err) };
     }
   }
