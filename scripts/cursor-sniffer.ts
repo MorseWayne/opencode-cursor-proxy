@@ -8,17 +8,32 @@
  * Usage:
  *   bun scripts/cursor-sniffer.ts [options]
  *
+ * Modes:
+ *   (default)          Start proxy server
+ *   --interactive, -i  Interactive analysis mode
+ *   --with-cursor      Start proxy and launch Cursor with it
+ *   --tls              Enable TLS interception (HTTPS MITM)
+ *   --ui               Start with Web UI
+ *
+ * Analysis:
+ *   --analyze-file <path>   Analyze a file (auto-detect format)
+ *   --analyze-sse <path>    Analyze SSE-format file
+ *   --analyze               Analyze hex from stdin
+ *   --analyze-base64        Analyze base64 from stdin
+ *
  * Options:
  *   --port <port>      Proxy port (default: 8888)
+ *   --ui-port <port>   Web UI port (default: 8889)
  *   --output <file>    Save captured traffic to file
- *   --verbose          Show full message content
- *   --raw              Show raw hex data
+ *   --verbose, -v      Show full message content
+ *   --raw, -r          Show raw hex data
+ *   --format <fmt>     Force format: hex|base64|sse|binary
  *
  * After starting, configure Cursor to use this proxy:
  *   export HTTP_PROXY=http://127.0.0.1:8888
  *   export HTTPS_PROXY=http://127.0.0.1:8888
  *
- * Or use the built-in debug mode to analyze local plugin traffic.
+ * Or use --with-cursor to automatically configure and launch Cursor.
  */
 
 import { parseProtoFields, type ParsedField } from "../src/lib/api/proto/decoding";
@@ -27,44 +42,62 @@ import { parseExecServerMessage } from "../src/lib/api/proto/exec";
 import { parseKvServerMessage } from "../src/lib/api/proto/kv";
 import { parseToolCallStartedUpdate } from "../src/lib/api/proto/tool-calls";
 import type { ExecRequest } from "../src/lib/api/proto/types";
-
-// ANSI color codes
-const colors = {
-  reset: "\x1b[0m",
-  bright: "\x1b[1m",
-  dim: "\x1b[2m",
-  red: "\x1b[31m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  magenta: "\x1b[35m",
-  cyan: "\x1b[36m",
-  white: "\x1b[37m",
-  bgBlue: "\x1b[44m",
-  bgGreen: "\x1b[42m",
-  bgYellow: "\x1b[43m",
-  bgRed: "\x1b[41m",
-};
+import {
+  analyzeFile,
+  analyzeFromStdin,
+  analyzeProtoFields as analyzeProtoFieldsModule,
+  parseAgentClientMessage,
+  parseAgentServerMessage,
+  removeEnvelope,
+  hexDump as hexDumpModule,
+  type DataFormat,
+} from "./sniffer/analyzer";
+import { colors, type SnifferOptions, DEFAULT_OPTIONS } from "./sniffer/types";
 
 const c = colors;
 
 // Parse command line arguments
 const args = process.argv.slice(2);
-let port = 8888;
+let port = DEFAULT_OPTIONS.port;
+let uiPort = DEFAULT_OPTIONS.uiPort!;
 let outputFile: string | null = null;
 let verbose = false;
 let showRaw = false;
+let analyzeFilePath: string | null = null;
+let analyzeSSEPath: string | null = null;
+let formatOverride: DataFormat | null = null;
+let withCursor = false;
+let enableTls = false;
+let enableUi = false;
+let direction: "request" | "response" | null = null;
 
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (arg === "--port" && args[i + 1]) {
     port = parseInt(args[++i]!, 10);
+  } else if (arg === "--ui-port" && args[i + 1]) {
+    uiPort = parseInt(args[++i]!, 10);
   } else if (arg === "--output" && args[i + 1]) {
     outputFile = args[++i]!;
   } else if (arg === "--verbose" || arg === "-v") {
     verbose = true;
   } else if (arg === "--raw" || arg === "-r") {
     showRaw = true;
+  } else if (arg === "--analyze-file" && args[i + 1]) {
+    analyzeFilePath = args[++i]!;
+  } else if (arg === "--analyze-sse" && args[i + 1]) {
+    analyzeSSEPath = args[++i]!;
+    formatOverride = "sse";
+  } else if (arg === "--format" && args[i + 1]) {
+    formatOverride = args[++i] as DataFormat;
+  } else if (arg === "--direction" && args[i + 1]) {
+    direction = args[++i] as "request" | "response";
+  } else if (arg === "--with-cursor") {
+    withCursor = true;
+  } else if (arg === "--tls") {
+    enableTls = true;
+  } else if (arg === "--ui") {
+    enableUi = true;
   } else if (arg === "--help" || arg === "-h") {
     console.log(`
 ${c.bright}Cursor Traffic Sniffer & Analyzer${c.reset}
@@ -72,15 +105,37 @@ ${c.bright}Cursor Traffic Sniffer & Analyzer${c.reset}
 ${c.cyan}Usage:${c.reset}
   bun scripts/cursor-sniffer.ts [options]
 
+${c.cyan}Modes:${c.reset}
+  ${c.yellow}(default)${c.reset}              Start proxy server
+  ${c.yellow}--interactive, -i${c.reset}      Interactive analysis mode
+  ${c.yellow}--with-cursor${c.reset}          Start proxy and launch Cursor with it
+  ${c.yellow}--tls${c.reset}                  Enable TLS interception (HTTPS MITM)
+  ${c.yellow}--ui${c.reset}                   Start with Web UI at http://localhost:${uiPort}
+
+${c.cyan}Analysis:${c.reset}
+  ${c.yellow}--analyze-file <path>${c.reset}  Analyze a file (auto-detect format)
+  ${c.yellow}--analyze-sse <path>${c.reset}   Analyze SSE-format file
+  ${c.yellow}--analyze${c.reset}              Analyze hex from stdin
+  ${c.yellow}--analyze-base64${c.reset}       Analyze base64 from stdin
+
 ${c.cyan}Options:${c.reset}
   --port <port>      Proxy port (default: 8888)
+  --ui-port <port>   Web UI port (default: 8889)
   --output <file>    Save captured traffic to file
   --verbose, -v      Show full message content
   --raw, -r          Show raw hex data
+  --format <fmt>     Force format: hex|base64|sse|binary
+  --direction <dir>  Hint: request or response
   --help, -h         Show this help
 
 ${c.cyan}Example:${c.reset}
-  # Start the sniffer
+  # Start the sniffer with one command (launches Cursor automatically)
+  bun run sniffer:cursor
+
+  # Start the sniffer with Web UI
+  bun run sniffer:ui
+
+  # Start manually
   bun scripts/cursor-sniffer.ts --port 8888 --verbose
 
   # In another terminal, set proxy and run Cursor
@@ -88,9 +143,14 @@ ${c.cyan}Example:${c.reset}
   export HTTPS_PROXY=http://127.0.0.1:8888
   cursor .
 
-${c.cyan}Direct Analysis Mode:${c.reset}
-  You can also analyze captured data directly:
+${c.cyan}File Analysis:${c.reset}
+  # Analyze a captured file (auto-detect format)
+  bun scripts/cursor-sniffer.ts --analyze-file captured.bin
 
+  # Analyze SSE response
+  bun scripts/cursor-sniffer.ts --analyze-sse response.txt
+
+${c.cyan}Stdin Analysis:${c.reset}
   # Analyze a hex string
   echo "0a05..." | bun scripts/cursor-sniffer.ts --analyze
 
@@ -766,22 +826,196 @@ ${c.cyan}Listening for connections...${c.reset}
   log(`Proxy server started on port ${server.port}`);
 }
 
+// Launch Cursor with proxy configured
+async function launchWithCursor(proxyPort: number, useTls: boolean): Promise<void> {
+  const { spawn } = await import("child_process");
+  const os = await import("os");
+  const path = await import("path");
+
+  logSection("Cursor Traffic Sniffer - One-Click Mode", c.green);
+  
+  // Determine Cursor executable
+  const platform = os.platform();
+  let cursorCmd: string;
+  
+  if (platform === "darwin") {
+    cursorCmd = "/Applications/Cursor.app/Contents/MacOS/Cursor";
+  } else if (platform === "win32") {
+    cursorCmd = "cursor";
+  } else {
+    // Linux - try common locations
+    const possiblePaths = [
+      "/usr/bin/cursor",
+      "/usr/local/bin/cursor",
+      path.join(os.homedir(), ".local/bin/cursor"),
+      path.join(os.homedir(), "AppImages/cursor.AppImage"),
+    ];
+    
+    const fs = await import("fs");
+    cursorCmd = possiblePaths.find(p => fs.existsSync(p)) || "cursor";
+  }
+  
+  console.log(`${c.cyan}Proxy port:${c.reset} ${proxyPort}`);
+  console.log(`${c.cyan}TLS interception:${c.reset} ${useTls ? "enabled" : "disabled"}`);
+  console.log(`${c.cyan}Cursor command:${c.reset} ${cursorCmd}`);
+  console.log();
+  
+  // Start proxy server in background
+  console.log(`${c.yellow}Starting proxy server...${c.reset}`);
+  
+  // Start the proxy (this runs in the same process)
+  const proxyPromise = useTls ? startTlsProxyServer(proxyPort) : startProxyServer();
+  
+  // Give proxy a moment to start
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // Prepare environment for Cursor
+  const env = {
+    ...process.env,
+    HTTP_PROXY: `http://127.0.0.1:${proxyPort}`,
+    HTTPS_PROXY: `http://127.0.0.1:${proxyPort}`,
+  };
+  
+  // Add certificate path if using TLS
+  if (useTls) {
+    const caPath = path.join(os.homedir(), ".cursor-sniffer", "ca.crt");
+    env.NODE_EXTRA_CA_CERTS = caPath;
+    console.log(`${c.cyan}CA certificate:${c.reset} ${caPath}`);
+  }
+  
+  console.log();
+  console.log(`${c.green}Launching Cursor...${c.reset}`);
+  console.log(`${c.dim}(Cursor will use the proxy automatically)${c.reset}`);
+  console.log();
+  
+  // Launch Cursor
+  // Note: Cursor launcher typically forks and exits immediately,
+  // so we use detached mode and don't wait for it
+  const cursorProcess = spawn(cursorCmd, ["."], {
+    env,
+    stdio: "ignore",
+    detached: true,
+  });
+  
+  cursorProcess.on("error", (err) => {
+    console.error(`${c.red}Failed to launch Cursor:${c.reset}`, err.message);
+    console.log(`${c.yellow}Try running Cursor manually with:${c.reset}`);
+    console.log(`  export HTTP_PROXY=http://127.0.0.1:${proxyPort}`);
+    console.log(`  export HTTPS_PROXY=http://127.0.0.1:${proxyPort}`);
+    if (useTls) {
+      console.log(`  export NODE_EXTRA_CA_CERTS=~/.cursor-sniffer/ca.crt`);
+    }
+    console.log(`  cursor .`);
+  });
+  
+  // Unref so the parent doesn't wait for the child
+  cursorProcess.unref();
+  
+  // Give it a moment to start
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  console.log(`${c.green}Cursor launched successfully!${c.reset}`);
+  console.log(`${c.dim}Proxy server is running. Press Ctrl+C to stop.${c.reset}\n`);
+  
+  // Handle signals
+  process.on("SIGINT", () => {
+    console.log(`\n${c.yellow}Shutting down proxy...${c.reset}`);
+    console.log(`${c.dim}(Cursor will continue running)${c.reset}`);
+    process.exit(0);
+  });
+  
+  // Wait for proxy (never returns normally)
+  await proxyPromise;
+}
+
+// Placeholder for TLS proxy (implemented in separate module)
+async function startTlsProxyServer(proxyPort: number): Promise<void> {
+  try {
+    const { startTlsProxy } = await import("./sniffer/tls-proxy");
+    await startTlsProxy({ port: proxyPort, verbose, showRaw });
+  } catch (err) {
+    console.log(`${c.yellow}TLS proxy module not available, falling back to basic proxy${c.reset}`);
+    console.log(`${c.dim}(HTTPS interception will be limited)${c.reset}`);
+    await startProxyServer();
+  }
+}
+
+// Placeholder for Web UI (implemented in separate module)
+async function startWithWebUI(proxyPort: number, webUiPort: number): Promise<void> {
+  try {
+    const { startWebUI } = await import("./sniffer/web-ui");
+    await startWebUI({ port: proxyPort, uiPort: webUiPort, verbose, showRaw });
+  } catch (err) {
+    console.log(`${c.yellow}Web UI module not available${c.reset}`);
+    console.log(`${c.dim}Starting proxy server only...${c.reset}`);
+    await startProxyServer();
+  }
+}
+
 // Main entry point
 async function main(): Promise<void> {
+  // File analysis mode
+  if (analyzeFilePath) {
+    await analyzeFile(analyzeFilePath, {
+      verbose,
+      showRaw,
+      format: formatOverride || undefined,
+    });
+    return;
+  }
+  
+  // SSE file analysis
+  if (analyzeSSEPath) {
+    await analyzeFile(analyzeSSEPath, {
+      verbose,
+      showRaw,
+      format: "sse",
+    });
+    return;
+  }
+
   // Check for stdin analysis mode
-  if (args.includes("--analyze")) {
-    await analyzeFromStdin(false);
+  if (args.includes("--analyze") || args.includes("--analyze-stdin")) {
+    await analyzeFromStdin({
+      isBase64: false,
+      direction: direction || undefined,
+      verbose,
+      showRaw,
+    });
     return;
   }
 
   if (args.includes("--analyze-base64")) {
-    await analyzeFromStdin(true);
+    await analyzeFromStdin({
+      isBase64: true,
+      direction: direction || undefined,
+      verbose,
+      showRaw,
+    });
     return;
   }
 
   // Check for interactive mode
   if (args.includes("--interactive") || args.includes("-i")) {
     await interactiveMode();
+    return;
+  }
+  
+  // Web UI mode
+  if (enableUi) {
+    await startWithWebUI(port, uiPort);
+    return;
+  }
+
+  // One-click Cursor launch mode
+  if (withCursor) {
+    await launchWithCursor(port, enableTls);
+    return;
+  }
+
+  // TLS proxy mode
+  if (enableTls) {
+    await startTlsProxyServer(port);
     return;
   }
 

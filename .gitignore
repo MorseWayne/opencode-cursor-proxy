@@ -57,3 +57,4 @@ scripts/test-*.ts
 !.opencode
 
 dist/
+**/__pycache__/**

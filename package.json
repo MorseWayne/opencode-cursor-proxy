@@ -41,6 +41,10 @@
     "sniffer": "bun run scripts/cursor-sniffer.ts",
     "sniffer:verbose": "bun run scripts/cursor-sniffer.ts --verbose",
     "sniffer:interactive": "bun run scripts/cursor-sniffer.ts --interactive",
+    "sniffer:cursor": "bun run scripts/cursor-sniffer.ts --with-cursor",
+    "sniffer:tls": "bun run scripts/cursor-sniffer.ts --tls",
+    "sniffer:ui": "bun run scripts/cursor-sniffer.ts --ui",
+    "sniffer:analyze": "bun run scripts/cursor-sniffer.ts --analyze-file",
     "test": "bun test tests/unit",
     "test:integration": "bun test tests/integration",
     "test:all": "bun test tests"
