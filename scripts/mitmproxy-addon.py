@@ -110,6 +110,97 @@ class Colors:
 c = Colors()
 
 
+def parse_varint(data: bytes, offset: int) -> tuple:
+    """Parse a protobuf varint, return (value, new_offset)."""
+    result = 0
+    shift = 0
+    while offset < len(data):
+        byte = data[offset]
+        result |= (byte & 0x7F) << shift
+        offset += 1
+        if not (byte & 0x80):
+            break
+        shift += 7
+    return result, offset
+
+
+def parse_proto_fields(data: bytes) -> list:
+    """Parse protobuf fields from binary data.
+    
+    Returns list of (field_number, wire_type, value) tuples.
+    wire_type 0 = varint, 2 = length-delimited (bytes/string)
+    """
+    fields = []
+    offset = 0
+    
+    while offset < len(data):
+        try:
+            tag, offset = parse_varint(data, offset)
+            field_number = tag >> 3
+            wire_type = tag & 0x07
+            
+            if wire_type == 0:  # Varint
+                value, offset = parse_varint(data, offset)
+                fields.append((field_number, wire_type, value))
+            elif wire_type == 2:  # Length-delimited
+                length, offset = parse_varint(data, offset)
+                if offset + length > len(data):
+                    break
+                value = data[offset:offset + length]
+                offset += length
+                fields.append((field_number, wire_type, value))
+            elif wire_type == 1:  # 64-bit
+                offset += 8
+            elif wire_type == 5:  # 32-bit
+                offset += 4
+            else:
+                break  # Unknown wire type
+        except Exception:
+            break
+    
+    return fields
+
+
+def extract_text_from_agent_message(data: bytes) -> list:
+    """Extract text content from AgentServerMessage protobuf.
+    
+    Structure:
+      AgentServerMessage:
+        field 1: InteractionUpdate
+          field 1: text_delta -> field 1: text
+          field 4: thinking_delta -> field 1: thinking
+          field 8: token_delta -> field 1: text
+    """
+    texts = []
+    
+    try:
+        # Parse outer message (AgentServerMessage)
+        outer_fields = parse_proto_fields(data)
+        
+        for fn, wt, val in outer_fields:
+            if fn == 1 and wt == 2 and isinstance(val, bytes):
+                # This is InteractionUpdate
+                update_fields = parse_proto_fields(val)
+                
+                for ufn, uwt, uval in update_fields:
+                    # field 1 = text_delta, field 4 = thinking_delta, field 8 = token_delta
+                    if ufn in (1, 4, 8) and uwt == 2 and isinstance(uval, bytes):
+                        # Parse inner message to get actual text
+                        inner_fields = parse_proto_fields(uval)
+                        for ifn, iwt, ival in inner_fields:
+                            if ifn == 1 and iwt == 2 and isinstance(ival, bytes):
+                                try:
+                                    text = ival.decode('utf-8')
+                                    if text.strip():
+                                        texts.append(text)
+                                except:
+                                    pass
+    except Exception:
+        pass
+    
+    return texts
+
+
 def timestamp():
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
@@ -325,6 +416,7 @@ class CursorAnalyzer:
         # This prevents mitmproxy from buffering the entire response
         is_streaming = (
             "grpc" in content_type or 
+            "connect" in content_type or
             "event-stream" in content_type or
             "AgentService/Run" in endpoint or
             "RunSSE" in endpoint or
@@ -333,8 +425,53 @@ class CursorAnalyzer:
         )
         
         if is_streaming:
-            # Store for later - we'll handle streaming manually
             flow.metadata["cursor_streaming"] = True
+            flow.metadata["cursor_stream_bytes"] = 0
+            flow.metadata["cursor_stream_chunks"] = 0
+            flow.metadata["cursor_stream_text"] = []
+            req_id = flow.metadata.get("cursor_req_id", "?")
+            
+            # Log streaming response header immediately
+            if flow.metadata.get("cursor_show", True):
+                self.log(f"\n{c.BLUE}── Streaming Response #{req_id} ──{c.RESET}")
+                self.log(f"  {c.CYAN}Status:{c.RESET} {flow.response.status_code}")
+                self.log(f"  {c.CYAN}Content-Type:{c.RESET} {content_type}")
+                self.log(f"  {c.MAGENTA}[gRPC Stream Active]{c.RESET}")
+            
+            # Use a simple streaming modifier to capture data
+            addon = self
+            
+            def modify_stream(data: bytes) -> bytes:
+                """Stream modifier - parse protobuf and extract AI text."""
+                flow.metadata["cursor_stream_bytes"] += len(data)
+                flow.metadata["cursor_stream_chunks"] += 1
+                
+                # Parse gRPC frames and extract text from protobuf
+                try:
+                    offset = 0
+                    while offset + 5 <= len(data):
+                        flags = data[offset]
+                        length = int.from_bytes(data[offset+1:offset+5], 'big')
+                        if offset + 5 + length > len(data):
+                            break
+                        frame_data = data[offset+5:offset+5+length]
+                        offset += 5 + length
+                        
+                        if flags & 0x80:  # Skip trailer
+                            continue
+                        
+                        # Parse protobuf to extract text
+                        texts = extract_text_from_agent_message(frame_data)
+                        for text in texts:
+                            if text.strip():
+                                flow.metadata["cursor_stream_text"].append(text)
+                except Exception:
+                    pass
+                
+                return data
+            
+            flow.response.stream = modify_stream
+            
             if self.debug:
                 self.log(f"{c.DIM}[DEBUG] Streaming enabled for: {endpoint}{c.RESET}")
     
@@ -350,13 +487,34 @@ class CursorAnalyzer:
         req_id = flow.metadata.get("cursor_req_id", "?")
         content_type = flow.response.headers.get("content-type", "")
         endpoint = flow.request.path
-        is_streaming = flow.metadata.get("cursor_streaming", False)
         
+        # Streaming responses - log completion with captured data
+        if flow.metadata.get("cursor_streaming", False):
+            total_bytes = flow.metadata.get("cursor_stream_bytes", 0)
+            total_chunks = flow.metadata.get("cursor_stream_chunks", 0)
+            text_fragments = flow.metadata.get("cursor_stream_text", [])
+            
+            self.log(f"\n{c.BLUE}── Stream Complete #{req_id} ──{c.RESET}")
+            self.log(f"  {c.CYAN}Chunks:{c.RESET} {total_chunks}")
+            self.log(f"  {c.CYAN}Total Size:{c.RESET} {total_bytes} bytes")
+            
+            if text_fragments:
+                self.log(f"  {c.GREEN}AI Response:{c.RESET}")
+                # Combine and show response preview
+                combined = ' '.join(text_fragments)
+                # Clean up and limit length
+                preview = combined[:800]
+                if len(combined) > 800:
+                    preview += "..."
+                self.log(f"    {preview}")
+            
+            self.log(f"  {c.GREEN}[Stream Finished]{c.RESET}")
+            return
+        
+        # Non-streaming response
         self.log(f"\n{c.BLUE}── Response #{req_id} ──{c.RESET}")
         self.log(f"  {c.CYAN}Status:{c.RESET} {flow.response.status_code}")
         self.log(f"  {c.CYAN}Content-Type:{c.RESET} {content_type}")
-        if is_streaming:
-            self.log(f"  {c.MAGENTA}[Streaming Response]{c.RESET}")
         
         if not flow.response.content:
             return
